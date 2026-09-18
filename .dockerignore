@@ -4,6 +4,7 @@ __pycache__
 *.pyd
 .Python
 .env
+.env.*
 .venv
 venv/
 env/
@@ -17,3 +18,9 @@ htmlcov/
 .idea/
 .vscode/
 *.swp
+.git
+.github
+tests/
+test_local.py
+*.pdf
+*Sample_Cases.json

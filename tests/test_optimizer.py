@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from optimizer import optimize
+from optimizer import OptimizationInfeasibleError, optimize
 from schemas import BatterySpec, HourEntry
 
 
@@ -176,12 +176,26 @@ def test_max_grid_window_caps_grid_imports():
     plan, _, _, _ = optimize(
         hours, bat,
         [{"note_index": 0, "applies": True, "directive_type": "max_grid_window",
-          "structured_adjustment": {"hours": [18, 19, 20], "max_grid_kwh": 100},
+          # At hour 19 demand is 215 kWh and discharge is limited to 50 kWh,
+          # so 165 kWh is the tightest feasible cap.
+          "structured_adjustment": {"hours": [18, 19, 20], "max_grid_kwh": 165},
           "explanation": ""}],
     )
     for p in plan:
         if p["hour"] in (18, 19, 20):
-            assert p["grid_kwh"] <= 100 + 0.01
+            assert p["grid_kwh"] <= 165 + 0.01
+
+
+def test_infeasible_grid_cap_raises_controlled_error():
+    hours = _mk_hours(_demands(), _solars(), _tariffs())
+    bat = _mk_battery()
+    with pytest.raises(OptimizationInfeasibleError):
+        optimize(
+            hours, bat,
+            [{"note_index": 0, "applies": True, "directive_type": "max_grid_window",
+              "structured_adjustment": {"hours": [19], "max_grid_kwh": 100},
+              "explanation": ""}],
+        )
 
 
 def test_minimum_reserve_raises_battery_floor():

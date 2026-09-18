@@ -12,14 +12,16 @@ LLM-assisted 24-hour energy scheduler for BUP CSE Fest 2026 Hackathon (Prelimina
 
 The LLM is on the **interpretation path** as required by the problem statement.
 LLM output is treated as untrusted; `validator.py` applies deterministic guardrails
-before any directive touches the optimizer. The optimizer is a linear program (PuLP/CBC).
+before any directive touches the optimizer. The optimizer is a mixed-integer
+linear program (PuLP/CBC), which prevents simultaneous battery charging and
+discharging while minimizing grid cost.
 
 ## Run locally
 
 ```bash
-pip install -r requirements.txt
-cp .env.example .env       # then add your OPENAI_API_KEY
-python main.py             # or: uvicorn main:app --host 0.0.0.0 --port 8000
+python3 -m pip install -r requirements.txt
+cp .env.example .env       # configure OPENAI_API_KEY, OPENAI_MODEL, OPENAI_BASE_URL
+python3 main.py            # or: uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
 Test:
@@ -28,13 +30,16 @@ Test:
 curl http://localhost:8000/health
 ```
 
-Send a scenario (see the public sample pack for full payloads):
+Run the supplied public sample pack (all 10 cases should pass):
 
 ```bash
-curl -X POST http://localhost:8000/optimize-energy \
-  -H "Content-Type: application/json" \
-  -d @sample_request.json
+python3 test_local.py --inproc
 ```
+
+`OPENAI_API_KEY` is optional for local tests. In a deployed judge environment,
+set `OPENAI_API_KEY` and optionally `OPENAI_MODEL`, `OPENAI_BASE_URL`, and
+`LLM_TIMEOUT_SECONDS` (default: 12). The API falls back to deterministic,
+guardrailed interpretation when the provider is unavailable.
 
 ## Files
 
@@ -44,7 +49,7 @@ curl -X POST http://localhost:8000/optimize-energy \
 | `schemas.py` | Pydantic request/response models (Section 07 & 10) |
 | `llm_interpreter.py` | OpenAI-based note interpreter + deterministic fallback |
 | `validator.py` | Guardrails from Section 08 — only safe data reaches the optimizer |
-| `optimizer.py` | LP (PuLP/CBC) that minimizes total grid cost |
+| `optimizer.py` | MILP (PuLP/CBC) that minimizes total grid cost |
 
 ## Notes for the judge harness
 
@@ -52,7 +57,8 @@ curl -X POST http://localhost:8000/optimize-energy \
 * 24-hour horizon, end-of-day battery neutrality enforced in the LP.
 * Time windows are half-open: "1 PM to 3 PM" → `[13, 14]`.
 * `no_op` is the only directive with `applies=false`.
-* If the LLM fails or returns malformed JSON, the service falls back to a deterministic keyword interpreter rather than crashing.
+* If the LLM fails or returns malformed JSON, the service uses a deterministic,
+  guardrailed fallback rather than crashing.
 
 ## Public test pack
 
@@ -70,7 +76,7 @@ python test_local.py --inproc
 ## Pytest suite
 
 ```bash
-pip install -r requirements-dev.txt
+python3 -m pip install -r requirements-dev.txt
 pytest                  # full suite (validator, optimizer, API, sample cases)
 pytest -m smoke         # only smoke tests
 pytest tests/test_optimizer.py -v
@@ -119,8 +125,19 @@ and a primary region of Singapore (`sin`) which is closest to Bangladesh.
 
 ```bash
 docker build -t gridwise .
-docker run --rm -p 8000:8000 -e OPENAI_API_KEY=sk-... gridwise
+docker run --rm -p 8000:8000 --name gridwise gridwise
 curl http://localhost:8000/health
+```
+
+The container runs safely without an API key using the deterministic fallback.
+For deployed LLM interpretation, inject secrets at runtime rather than baking
+them into the image:
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e OPENAI_API_KEY="your-runtime-secret" \
+  -e OPENAI_MODEL="gpt-4o-mini" \
+  gridwise
 ```
 
 ### Option 5 — Direct (no Docker)

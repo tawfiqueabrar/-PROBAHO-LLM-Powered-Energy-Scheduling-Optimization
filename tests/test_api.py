@@ -1,4 +1,4 @@
-"""End-to-end API tests against all 10 public sample cases.
+"""End-to-end API tests against supplied scenario fixtures.
 
 We invoke the FastAPI app in-process via TestClient so these tests don't need
 a running server, network access, or an OpenAI key.
@@ -29,11 +29,8 @@ def _run_case(client: TestClient, payload: dict) -> dict:
     return r.json()
 
 
-@pytest.mark.parametrize("case_id_prefix", ["SAMPLE-0"])
-def test_all_public_cases_pass_smoke_checks(client: TestClient, sample_cases, case_id_prefix):
+def test_all_fixture_cases_pass_smoke_checks(client: TestClient, sample_cases):
     for case in sample_cases:
-        if not case["id"].startswith(case_id_prefix):
-            continue
         resp = _run_case(client, case["input"])
 
         # 1. one entry per note
@@ -74,4 +71,23 @@ def test_all_public_cases_pass_smoke_checks(client: TestClient, sample_cases, ca
 def test_invalid_request_returns_400(client: TestClient):
     bad = {"scenario_id": "X", "operator_notes": [], "hours": [], "battery": {}}
     r = client.post("/optimize-energy", json=bad)
-    assert r.status_code in (400, 422)
+    assert r.status_code == 400
+
+
+def test_blank_operator_note_returns_400(client: TestClient):
+    payload = {
+        "scenario_id": "blank-note",
+        "operator_notes": ["   "],
+        "hours": [
+            {"hour": h, "demand_kwh": 1, "solar_kwh": 0, "tariff_bdt_per_kwh": 1}
+            for h in range(24)
+        ],
+        "battery": {
+            "capacity_kwh": 10,
+            "initial_energy_kwh": 5,
+            "minimum_energy_kwh": 0,
+            "max_charge_kwh_per_hour": 1,
+            "max_discharge_kwh_per_hour": 1,
+        },
+    }
+    assert client.post("/optimize-energy", json=payload).status_code == 400

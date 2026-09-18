@@ -6,10 +6,9 @@ JSON, fed into validator.py which is strictly deterministic.
 We require an OpenAI-compatible client. The model is chosen via the
 OPENAI_MODEL environment variable (default: gpt-4o-mini).
 
-If no API key is configured, we fall back to a deterministic keyword-based
-interpreter that handles only the public sample-style phrasings. This keeps
-local development working without keys but is NOT a substitute for an LLM
-in the hidden judge — make sure OPENAI_API_KEY is set for the real run.
+If no API key is configured, we fall back to a deterministic interpreter for
+controlled local operation. This is not a substitute for an LLM in the hidden
+judge — configure OPENAI_API_KEY for the deployed service.
 """
 
 from __future__ import annotations
@@ -28,6 +27,7 @@ logger = logging.getLogger("gridwise.llm")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "12"))
 
 
 SYSTEM_PROMPT = """You are a campus energy operator assistant for a smart campus microgrid.
@@ -103,7 +103,10 @@ def _call_openai(prompt: str) -> Optional[str]:
                 "temperature": 0.0,
                 "response_format": {"type": "json_object"},
             },
-            timeout=60.0,
+            # The judge's request deadline is 30 seconds. Leave enough time
+            # for deterministic validation and optimization after a provider
+            # outage, then use the safe local fallback.
+            timeout=LLM_TIMEOUT_SECONDS,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -130,46 +133,51 @@ def _parse_llm_json(raw: str) -> Optional[Dict[str, Any]]:
 
 # --------------------- Deterministic fallback (no API key) ------------------
 
+_HOUR_WORDS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4,
+    "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+    "ten": 10, "eleven": 11, "twelve": 12,
+}
+_TIME_TOKEN = r"(?:midnight|noon|(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d{1,2})(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?)"
 _TIME_PATTERNS = [
-    # 12-hour with am/pm, e.g. "1 PM to 3 PM", "from 1pm until 3pm"
-    (r"from?\s+(\d{1,2})(?::\d{2})?\s*(am|pm)\s*(?:to|until|till|-)\s*(\d{1,2})(?::\d{2})?\s*(am|pm)", "12h"),
-    # 24-hour "13:00 to 15:00"
-    (r"(\d{1,2}):\d{2}\s*(?:to|until|till|-)\s*(\d{1,2}):\d{2}", "24h"),
-    # bare "1-3 PM" or "1 to 3 PM"
-    (r"(\d{1,2})\s*(?:-|to|until)\s*(\d{1,2})\s*(am|pm)", "12h_single"),
+    rf"\bfrom\s+({_TIME_TOKEN})\s*(?:to|until|till|-)\s*({_TIME_TOKEN})",
+    rf"\bbetween\s+({_TIME_TOKEN})\s*(?:and|to|until|till|-)\s*({_TIME_TOKEN})",
+    rf"\b({_TIME_TOKEN})\s*(?:to|until|till|-)\s*({_TIME_TOKEN})",
 ]
 
 
-def _to_24h(h: int, meridian: Optional[str]) -> int:
-    if meridian is None:
-        return h
-    meridian = meridian.lower()
+def _parse_time_token(token: str) -> Optional[int]:
+    """Convert a single explicit clock token into a 24-hour integer."""
+    normalized = token.lower().replace(".", "").strip()
+    if normalized == "noon":
+        return 12
+    if normalized == "midnight":
+        return 0
+    match = re.fullmatch(r"(?:(\d{1,2})|([a-z]+))(?:\:\d{2})?\s*(am|pm)?", normalized)
+    if not match:
+        return None
+    hour = int(match.group(1)) if match.group(1) else _HOUR_WORDS.get(match.group(2) or "")
+    if hour is None:
+        return None
+    meridian = match.group(3)
     if meridian == "am":
-        return 0 if h == 12 else h
-    # pm
-    return 12 if h == 12 else h + 12
+        return 0 if hour == 12 else hour if 0 <= hour <= 11 else None
+    if meridian == "pm":
+        return 12 if hour == 12 else hour + 12 if 1 <= hour <= 11 else None
+    return hour if 0 <= hour <= 23 else None
 
 
 def _extract_hours(text: str) -> Optional[List[int]]:
     """Best-effort hour extraction from common phrasings."""
     text_l = text.lower()
 
-    for pat, kind in _TIME_PATTERNS:
+    for pat in _TIME_PATTERNS:
         m = re.search(pat, text_l)
         if not m:
             continue
-        if kind == "12h":
-            h1, mer1, h2, mer2 = m.group(1), m.group(2), m.group(3), m.group(4)
-            start = _to_24h(int(h1), mer1)
-            end = _to_24h(int(h2), mer2)
-        elif kind == "24h":
-            start = int(m.group(1))
-            end = int(m.group(2))
-        else:  # 12h_single
-            h1, h2, mer = m.group(1), m.group(2), m.group(3)
-            start = _to_24h(int(h1), None)
-            end = _to_24h(int(h2), mer)
-        if end <= start:
+        start = _parse_time_token(m.group(1))
+        end = _parse_time_token(m.group(2))
+        if start is None or end is None or end <= start or end > 24:
             return None
         # Half-open window: start inclusive, end exclusive
         return list(range(start, end))
@@ -183,7 +191,7 @@ _KEYWORD_NO_OP = [
 ]
 
 
-def _fallback_interpret(notes: List[str]) -> List[Dict[str, Any]]:
+def _fallback_interpret(notes: List[str], battery_capacity_kwh: float) -> List[Dict[str, Any]]:
     """A tiny deterministic fallback. NOT a substitute for the LLM."""
     out: List[Dict[str, Any]] = []
     for i, note in enumerate(notes):
@@ -199,16 +207,22 @@ def _fallback_interpret(notes: List[str]) -> List[Dict[str, Any]]:
 
         # Heuristic routing
         if any(k in low for k in ["solar", "pv", "panel", "rooftop"]):
+            # A percentage attached to "reduction" is removed output; a
+            # percentage after "to/leave/remain" is usable output remaining.
             factor = 0.2
-            m = re.search(r"(\d{1,3})\s*%", low)
-            if m:
-                pct = max(0, min(100, int(m.group(1))))
-                factor = max(0.0, min(1.0, (100 - pct) / 100.0))
+            if re.search(r"(?:half|one[- ]fifth)", low):
+                factor = 0.5 if "half" in low else 0.2
             else:
-                m2 = re.search(r"(?:about|around|roughly|to)\s+(\d{1,3})\s*%", low)
-                if m2:
-                    pct = max(0, min(100, int(m2.group(1))))
-                    factor = max(0.0, min(1.0, pct / 100.0))
+                pct_match = re.search(r"(\d{1,3})\s*%", low)
+                if pct_match:
+                    pct = max(0, min(100, int(pct_match.group(1))))
+                    prefix = low[:pct_match.start()]
+                    suffix = low[pct_match.end():pct_match.end() + 24]
+                    is_reduction = bool(
+                        re.search(r"(?:reduce|reduced|reduction|drop)\D{0,24}$", prefix)
+                        or re.search(r"\b(?:reduce|reduced|reduction|drop)\b", suffix)
+                    )
+                    factor = (100 - pct) / 100.0 if is_reduction else pct / 100.0
             out.append(
                 {
                     "note_index": i,
@@ -220,19 +234,7 @@ def _fallback_interpret(notes: List[str]) -> List[Dict[str, Any]]:
             )
             continue
 
-        if "charge" in low and ("not" in low or "no " in low or "isolated" in low or "maintenance" in low or "disable" in low):
-            out.append(
-                {
-                    "note_index": i,
-                    "applies": True,
-                    "directive_type": "no_charge_window",
-                    "structured_adjustment": {"hours": hours},
-                    "explanation": "No-charge window detected.",
-                }
-            )
-            continue
-
-        if "discharge" in low and ("not" in low or "no " in low or "disable" in low):
+        if re.search(r"\bdischarge\b", low) and any(k in low for k in ["not", "no ", "disable", "unavailable"]):
             out.append(
                 {
                     "note_index": i,
@@ -244,9 +246,22 @@ def _fallback_interpret(notes: List[str]) -> List[Dict[str, Any]]:
             )
             continue
 
+        if re.search(r"\bcharg(?:e|ing|er)\b", low) and any(k in low for k in ["not", "no ", "isolated", "maintenance", "disable", "unavailable"]):
+            out.append(
+                {
+                    "note_index": i,
+                    "applies": True,
+                    "directive_type": "no_charge_window",
+                    "structured_adjustment": {"hours": hours},
+                    "explanation": "No-charge window detected.",
+                }
+            )
+            continue
+
         if any(k in low for k in ["reserve", "keep", "at least", "minimum"]):
             m = re.search(r"(\d+(?:\.\d+)?)\s*kwh", low)
-            reserve = float(m.group(1)) if m else 0.0
+            percent = re.search(r"(\d+(?:\.\d+)?)\s*%\s+of\s+(?:the\s+)?battery\s+capacity", low)
+            reserve = float(m.group(1)) if m else (battery_capacity_kwh * float(percent.group(1)) / 100.0 if percent else 0.0)
             out.append(
                 {
                     "note_index": i,
@@ -258,7 +273,7 @@ def _fallback_interpret(notes: List[str]) -> List[Dict[str, Any]]:
             )
             continue
 
-        if any(k in low for k in ["grid", "import", "draw"]) and ("cap" in low or "limit" in low or "max" in low or "not exceed" in low or "no more than" in low):
+        if any(k in low for k in ["grid", "import", "draw", "intake"]) and ("cap" in low or "limit" in low or "max" in low or "not exceed" in low or "no more than" in low or "at or below" in low):
             m = re.search(r"(\d+(?:\.\d+)?)\s*kwh", low)
             cap = float(m.group(1)) if m else 0.0
             out.append(
@@ -309,10 +324,10 @@ def interpret_notes(
 
     if parsed is None:
         logger.info("LLM unavailable or returned unparseable JSON; using fallback.")
-        return _fallback_interpret(operator_notes)
+        return _fallback_interpret(operator_notes, battery_capacity_kwh)
 
     entries = parsed.get("directive_interpretation")
     if not isinstance(entries, list):
-        return _fallback_interpret(operator_notes)
+        return _fallback_interpret(operator_notes, battery_capacity_kwh)
 
     return entries

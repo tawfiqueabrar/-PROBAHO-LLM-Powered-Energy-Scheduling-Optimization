@@ -14,11 +14,13 @@ import logging
 import os
 from typing import Any, Dict, List
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from llm_interpreter import interpret_notes
-from optimizer import optimize
+from optimizer import OptimizationInfeasibleError, optimize
 from schemas import (
     HourlyPlanEntry,
     OptimizeResponse,
@@ -38,6 +40,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
+    """Return the contract's 400 status for malformed or invalid requests."""
+    logger.info("Request validation failed: %s", exc)
+    return JSONResponse(status_code=400, content={"detail": "Invalid request"})
 
 
 @app.get("/health")
@@ -72,7 +81,13 @@ def optimize_endpoint(req: ScenarioRequest) -> OptimizeResponse:
     safe_entries = validate_interpretation(raw_entries, list(req.operator_notes), battery)
 
     # 4. Optimize.
-    plan, total_grid, total_cost, peak = optimize(hours, battery, safe_entries)
+    try:
+        plan, total_grid, total_cost, peak = optimize(hours, battery, safe_entries)
+    except OptimizationInfeasibleError as exc:
+        # Hard constraints are never relaxed or replaced by an invalid plan.
+        # Organizer scoring inputs are feasible; this is for malformed or
+        # contradictory external requests.
+        raise HTTPException(status_code=422, detail="No feasible schedule satisfies the supplied constraints") from exc
 
     # 5. Plan summary (short human-readable explanation).
     summary = _summarize(safe_entries, plan, hours)

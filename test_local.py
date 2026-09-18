@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 ROOT = Path(__file__).resolve().parent
-DEFAULT_SAMPLES = ROOT.parent / "BUP_CSE_FEST_2026_Preli_Public_Sample_Cases.json"
+DEFAULT_SAMPLES = ROOT / "BUP_CSE_FEST_2026_Preli_Public_Sample_Cases.json"
 
 TOL = 0.01
 
