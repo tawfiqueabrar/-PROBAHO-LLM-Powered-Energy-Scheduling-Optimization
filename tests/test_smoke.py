@@ -16,6 +16,13 @@ def test_health_endpoint():
     assert r.json() == {"status": "ok"}
 
 
+def test_dashboard_is_served_from_root():
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "GridWise" in r.text
+    assert client.get("/assets/app.js").status_code == 200
+
+
 def test_optimize_minimal_request():
     payload = {
         "scenario_id": "MIN-1",

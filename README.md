@@ -9,6 +9,7 @@ LLM-assisted 24-hour energy scheduler for BUP CSE Fest 2026 Hackathon (Prelimina
   * `directive_interpretation[]` — machine-checkable interpretation of each note
   * `hourly_plan[24]` — battery / solar / grid dispatch
   * `total_grid_kwh`, `total_cost_bdt`, `peak_grid_kwh`, `plan_summary`
+* `GET /` → browser dashboard for entering a scenario and viewing the optimized plan
 
 The LLM is on the **interpretation path** as required by the problem statement.
 LLM output is treated as untrusted; `validator.py` applies deterministic guardrails
@@ -29,6 +30,9 @@ Test:
 ```bash
 curl http://localhost:8000/health
 ```
+
+Open `http://localhost:8000/` for the browser dashboard, or
+`http://localhost:8000/docs` for the raw API explorer.
 
 Run the supplied public sample pack (all 10 cases should pass):
 

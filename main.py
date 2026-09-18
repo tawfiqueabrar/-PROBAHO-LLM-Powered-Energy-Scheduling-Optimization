@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 from typing import Any, Dict, List
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from llm_interpreter import interpret_notes
 from optimizer import OptimizationInfeasibleError, optimize
@@ -32,6 +34,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("gridwise")
 
 app = FastAPI(title="GridWise Energy Optimizer", version="1.0.0")
+WEB_DIR = Path(__file__).resolve().parent / "web"
 
 # Permissive CORS so the judge's HTTP harness can call us from anywhere.
 app.add_middleware(
@@ -47,6 +50,15 @@ async def request_validation_error(_: Request, exc: RequestValidationError) -> J
     """Return the contract's 400 status for malformed or invalid requests."""
     logger.info("Request validation failed: %s", exc)
     return JSONResponse(status_code=400, content={"detail": "Invalid request"})
+
+
+app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
+
+
+@app.get("/", include_in_schema=False)
+def dashboard() -> FileResponse:
+    """Serve the browser dashboard from the same deployment as the API."""
+    return FileResponse(WEB_DIR / "index.html")
 
 
 @app.get("/health")

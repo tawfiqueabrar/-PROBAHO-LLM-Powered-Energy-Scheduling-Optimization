@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#091b2c">
+    <title>GridWise | Energy Scheduler</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="GridWise home">
+        <span class="brand-mark">G</span>
+        <span>Grid<span>Wise</span></span>
+      </a>
+      <nav><a href="/docs" target="_blank" rel="noreferrer">API docs ↗</a><span class="live"><i></i> Service ready</span></nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div>
+          <p class="eyebrow">SMART CAMPUS ENERGY SCHEDULING</p>
+          <h1>Make every kilowatt<br><em>work smarter.</em></h1>
+          <p class="hero-copy">Build a 24-hour dispatch plan using grid pricing, solar availability, battery limits, and natural-language operator directives.</p>
+        </div>
+        <div class="hero-stat"><span>24h</span><small>planning horizon</small><span>LLM</span><small>directive interpretation</small></div>
+      </section>
+
+      <section class="workspace">
+        <form id="scenario-form" novalidate>
+          <div class="form-header">
+            <div><p class="eyebrow">INPUT SCENARIO</p><h2>Schedule settings</h2></div>
+            <button type="button" class="button ghost" id="load-demo">Load demo</button>
+          </div>
+
+          <div class="card fields">
+            <label>Scenario ID<input id="scenario-id" value="CAMPUS-001" required></label>
+            <label>Capacity (kWh)<input id="capacity" type="number" min="1" value="200" required></label>
+            <label>Initial energy (kWh)<input id="initial" type="number" min="0" value="100" required></label>
+            <label>Minimum reserve (kWh)<input id="minimum" type="number" min="0" value="20" required></label>
+            <label>Max charge / hour<input id="max-charge" type="number" min="0" value="50" required></label>
+            <label>Max discharge / hour<input id="max-discharge" type="number" min="0" value="50" required></label>
+          </div>
+
+          <div class="form-header notes-header"><div><p class="eyebrow">OPERATOR DIRECTIVES</p><h2>Natural-language notes</h2></div><button type="button" class="text-button" id="add-note">+ Add note</button></div>
+          <div class="card notes" id="notes">
+            <label class="note-label"><span>01</span><textarea class="operator-note" rows="3" required>Do not charge the battery from 2 AM until 4 AM for maintenance.</textarea></label>
+          </div>
+
+          <div class="form-header"><div><p class="eyebrow">ENERGY FORECAST</p><h2>Hourly inputs</h2></div><span class="hint">Edit demand, solar and tariff</span></div>
+          <div class="card table-wrap">
+            <table><thead><tr><th>Hour</th><th>Demand <small>kWh</small></th><th>Solar <small>kWh</small></th><th>Tariff <small>BDT/kWh</small></th></tr></thead><tbody id="hour-rows"></tbody></table>
+          </div>
+
+          <div class="submit-row"><p id="form-message" role="status"></p><button class="button primary" id="optimize" type="submit"><span>Optimize schedule</span><b>→</b></button></div>
+        </form>
+
+        <aside class="results" id="results" aria-live="polite">
+          <div class="results-empty" id="results-empty"><div class="empty-icon">⌁</div><h2>Your plan will appear here</h2><p>Submit the scenario to interpret directives and calculate the lowest-cost valid dispatch schedule.</p></div>
+          <div id="results-content" hidden>
+            <div class="result-title"><div><p class="eyebrow">OPTIMIZATION RESULT</p><h2 id="result-scenario"></h2></div><span class="success">● Complete</span></div>
+            <div class="metrics"><article><span>Total cost</span><strong id="metric-cost">—</strong><small>BDT</small></article><article><span>Grid energy</span><strong id="metric-grid">—</strong><small>kWh</small></article><article><span>Peak import</span><strong id="metric-peak">—</strong><small>kWh</small></article></div>
+            <section class="result-section"><h3>Operator interpretation</h3><div id="directive-list" class="directives"></div></section>
+            <section class="result-section"><h3>24-hour dispatch</h3><div id="dispatch-chart" class="dispatch-chart"></div><div class="legend"><span><i class="grid-dot"></i>Grid</span><span><i class="charge-dot"></i>Charge</span><span><i class="discharge-dot"></i>Discharge</span></div></section>
+            <section class="result-section"><h3>Strategy</h3><p id="summary" class="summary"></p></section>
+            <details><summary>View schedule details</summary><div class="table-wrap mini"><table><thead><tr><th>Hour</th><th>Grid</th><th>Solar</th><th>Action</th><th>Battery</th><th>Energy after</th></tr></thead><tbody id="plan-rows"></tbody></table></div></details>
+          </div>
+        </aside>
+      </section>
+    </main>
+    <footer>GridWise · LLM-assisted optimization with deterministic safety guardrails</footer>
+    <script src="/assets/app.js"></script>
+  </body>
+</html>
