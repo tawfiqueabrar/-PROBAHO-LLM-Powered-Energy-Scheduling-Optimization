@@ -54,7 +54,14 @@ def health() -> Dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/optimize-energy", response_model=OptimizeResponse)
+@app.post(
+    "/optimize-energy",
+    response_model=OptimizeResponse,
+    responses={
+        400: {"description": "Malformed or structurally invalid request."},
+        422: {"description": "No feasible schedule satisfies the supplied constraints."},
+    },
+)
 def optimize_endpoint(req: ScenarioRequest) -> OptimizeResponse:
     # 1. Sanity: 24 unique hours 0..23, demand/solar/tariff non-negative.
     hours_sorted = sorted(req.hours, key=lambda h: h.hour)

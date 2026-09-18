@@ -91,3 +91,9 @@ def test_blank_operator_note_returns_400(client: TestClient):
         },
     }
     assert client.post("/optimize-energy", json=payload).status_code == 400
+
+
+def test_openapi_documents_actual_error_statuses(client: TestClient):
+    responses = client.get("/openapi.json").json()["paths"]["/optimize-energy"]["post"]["responses"]
+    assert responses["400"]["description"] == "Malformed or structurally invalid request."
+    assert responses["422"]["description"] == "No feasible schedule satisfies the supplied constraints."
