@@ -1,0 +1,23 @@
+# Render Blueprint — drop this on https://render.com → "New +" → "Blueprint"
+# Or use the Render CLI: `render blueprint launch`
+#
+# After deploy, Render gives you a public HTTPS URL like
+#   https://gridwise-energy-optimizer.onrender.com
+# The judge harness will hit:
+#   GET  https://<your-service>.onrender.com/health
+#   POST https://<your-service>.onrender.com/optimize-energy
+
+services:
+  - type: web
+    name: gridwise-energy-optimizer
+    runtime: docker
+    plan: free           # upgrade to "starter" for production workloads
+    region: oregon
+    healthCheckPath: /health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false       # set this in the Render dashboard so it stays a secret
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: PORT
+        value: "8000"
