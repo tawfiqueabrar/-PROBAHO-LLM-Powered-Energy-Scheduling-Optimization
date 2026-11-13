@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.15-slim
 
 LABEL org.opencontainers.image.title="GridWise Energy Optimizer" \
       org.opencontainers.image.description="LLM-assisted smart campus energy scheduling API"
